@@ -49,10 +49,14 @@ def main() -> None:
            # cfg.data.input_dim = train_data_poly.size(1)
           
             model_type = "BMLP"
-            input_dim = train_data.shape[1]
-            dropout = 0.0
-            hidden_layers = [100, 30]
-            model = get_model(model_type = model_type, input_dim = input_dim, dropout = dropout, hidden_layers = hidden_layers)
+            if model_type == "BMLP":
+                input_dim = train_data.shape[1]
+                dropout = 0.0
+                hidden_layers = [100, 30]
+                model = get_model(model_type = model_type, input_dim = input_dim, dropout = dropout, hidden_layers = hidden_layers)
+            else:
+                input_dim = train_data.shape[1]
+                model = get_model(model_type = "LogisticRegression", input_dim = input_dim)
 
             estimator = get_estimator(n_samples = 1000, radius = 100, distribution = "uniform", function = model, train_set = trainset)
 
@@ -70,7 +74,7 @@ def main() -> None:
             train_loader = DataLoader(trainset, batch_size=128, shuffle=True)
             test_loader = DataLoader(testset, batch_size=128, shuffle=True)
             
-            trainer_params = {"enable_progress_bar": False, "accelerator": "gpu", "num_sanity_val_steps": 0, "max_epochs": 6000}
+            trainer_params = {"enable_progress_bar": False, "accelerator": "gpu", "num_sanity_val_steps": 0, "max_epochs": 3}
             csv_logger = CSVLogger(
                 save_dir="log/",        # e.g. "csv_logs/"
                 name=f"{dataset_name}_{model_type}"
