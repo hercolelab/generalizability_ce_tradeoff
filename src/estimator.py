@@ -45,74 +45,69 @@ class MontecarloEstimator():
         self.include_volume = True
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.distribution: str = distribution
-        if distribution == "normal" : 
-            self.random_function = self.sphere.random_normal_points_in_sphere 
-        elif distribution == "shell":
-            self.random_function = self.sphere.random_uniform_points_in_shell 
-        else: 
-            self.sphere.random_uniform_points_in_sphere
+        self.random_function = self.sphere.random_normal_points_in_sphere if distribution == "normal" else self.sphere.random_uniform_points_in_sphere
+        self.perturbation = self.random_function(num_points=self.n_samples, shape=self.shape, radius=self.radius)
+
+    def get_counterfactual(self, 
+                       data: Tensor, 
+                       target: Tensor,
+                       grad: bool) -> Tuple[Tensor, Tensor]:
         
-
-    def get_counterfactual(
-            self,
-            data: Tensor,
-            target: Tensor,
-            grad: bool
-        ) -> Tuple[Tensor, Tensor]:
         """
-        Generate counterfactual samples by adding vectorized perturbations.
-
-        data:   (batch_size,     F…)  
-        target: (batch_size, …)  
-        r1 (margin) is now (batch_size,)  
-        self.perturbation: (batch_size, n_samples, *shape)
+        Generate counterfactual samples by perturbing the input tensor `data` and computing the model's output.
+        
+        The perturbation tensor must have the dimensions (P, S, F), where:
+        - P is the number of perturbations.
+        - S is the number of samples.
+        - F is the number of features.
+        
+        The input tensor `data` must have dimensions (S, F), where:
+        - S is the number of samples.
+        - F is the number of features.
+        
+        Parameters:
+        - data (Tensor): The input tensor of shape (batch_size, num_features).
+        - target (Tensor): The target tensor, which will be used to generate the counterfactual targets.
+        
+        Returns:
+        - Tuple[Tensor, Tensor]: A tuple containing:
+        - out (Tensor): The output tensor from the model after perturbation, reshaped as required.
+        - target (Tensor): The repeated and reshaped target tensor to match the perturbation structure.
         """
         torch.set_grad_enabled(mode=grad)
-
-        # 1) Compute margin per sample
-        w = self.model.linear.weight.cpu()
-        f_x = self.model.forward(data).cpu()
-        #print("f_x.shape:", f_x.shape)
-        #print("w.shape:", w.shape)
-        margin = np.abs(f_x/np.linalg.norm(w)) #(batch_size, )
-
-        # 2) Vectorized perturbation: now returns (batch_size, n_samples, *shape)
-        self.perturbation = self.random_function(
-            num_points=self.n_samples,
-            shape=self.shape,
-            r1=margin.numpy(),    # or margin.cpu().numpy()
-            r2=self.radius
-        )
-
-        # 3) Move data & perturbation to device
-        data = data.to(self.device)                      # (B, F…)
-        pert = self.perturbation.to(self.device)         # (B, N, F…)
-
-        # 4) Broadcast-add: for each sample b, add its N perturbations
-        #    → sample_perturbed: (B, N, F…)
-        sample_perturbed = data.unsqueeze(1) + pert
-
-        # 5) Flatten into a big batch for forward()
-        B, N = sample_perturbed.shape[:2]
-        flat = sample_perturbed.reshape(B * N, *self.shape)
-
-        # 6) Model outputs on all perturbed samples
-        out_flat = self.function(flat)                   # (B*N, …)
-        # reshape back to (B, N) if scalar outputs per sample
-        out = out_flat.view(B, N).to(self.device)
-
-        # 7) Prepare target: repeat each target N times
-        if target.dim() == 2:
-            # e.g. one-hot: take argmax
-            tgt = torch.argmax(target, dim=1)
-        else:
-            # binary or scalar
-            tgt = (target > 0).long().squeeze(-1)
-        # (B,) → (B, N)
-        target_expanded = tgt.unsqueeze(1).repeat(1, N).to(self.device)
-
-        return out, target_expanded
-
+        batch_size: int = data.shape[0]
+        unit_dims: Tuple[int, ...] = (1, ) 
+        new_shape: Tuple[int, ...] = (self.n_samples, *unit_dims, *self.shape)
+        perturbation: Tensor = self.perturbation.view(new_shape)
+        #print("perturbation.shape: ", perturbation.shape)
+        repeat_dims: Tuple[int, ...] = (1, batch_size, *((1, )*len(new_shape[2:])))
+        perturbation: Tensor = perturbation.repeat(repeat_dims)      
+        #print("perturbation.shape: ", perturbation.shape) 
+        data: Tensor = data.to(device=self.device) 
+        sample_perturbed: Tensor = data + perturbation 
+        #print("sample_perturbed.shape: ", sample_perturbed.shape)
+        batch_dims: Tuple[int, ...] = (-1, *new_shape[2:])
+        sample_perturbed: Tensor = sample_perturbed.reshape(batch_dims)
+        #print("sample_perturbed.shape: ", sample_perturbed.shape)
+        out: Tensor = self.function(sample_perturbed)
+        #print("out.shape: ", out.shape)
+        out = out.view(self.n_samples, batch_size).transpose(0, 1)
+        #print("out.shape: ", out.shape)
+        #print("target.shape: ", target.shape, len(target.shape))
+        if len(target.shape) == 2:
+            target: Tensor = torch.argmax(target, dim=-1)
+        else: 
+            target: Tensor = (target > 0).int()
+        #print("target.shape: ", target.shape)
+        target: Tensor = target.unsqueeze(1)
+        #print("target.shape: ", target.shape)
+        target: Tensor = target.repeat(1, self.n_samples)
+        #print("target.shape: ", target.shape)
+        #target: Tensor = target.reshape(batch_size * self.n_samples)
+        #print("target.shape: ", target.shape)
+        target: Tensor = target.to(self.device)
+        #print("target.shape: ", target.shape)
+        return out, target #[batch_size, n_sample]
     
     def get_estimate(self, data: Tensor, output: Tensor) -> Tensor:
         out, target_cf = self.get_counterfactual(data, output, grad=False)

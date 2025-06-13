@@ -64,10 +64,6 @@ class BMLP(nn.Module):
         # Output layer
         x = self.layers[-1](x).squeeze(1)
         
-        # Apply softmax if required
-        if self.apply_softmax:
-            x = F.softmax(x, dim=-1)
-        
         return x
     
 class BLogisticRegression(nn.Module): 

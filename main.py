@@ -7,6 +7,7 @@ from src.models import get_model
 from src.trainer import LightningClassifier
 from src.estimator import get_estimator
 from src.evaluation import ClassifierEvaluator
+from src.loss import get_loss
 import pytorch_lightning as pl
 from lightning.pytorch.loggers import CSVLogger
 
@@ -53,17 +54,18 @@ def main() -> None:
             hidden_layers = [100, 30]
             model = get_model(model_type = model_type, input_dim = input_dim, dropout = dropout, hidden_layers = hidden_layers)
 
-            estimator = get_estimator(n_samples = 1000, radius = 100, distribution = "shell", function = model, train_set = trainset)
+            estimator = get_estimator(n_samples = 1000, radius = 100, distribution = "uniform", function = model, train_set = trainset)
 
-            criterion = torch.nn.functional.binary_cross_entropy_with_logits
+            criterion = get_loss()
             evaluator = ClassifierEvaluator(classes=2)
             
+            # set margin to False for BMLP
             clf =  LightningClassifier(model=model, 
                                        criterion=criterion, 
                                        optim_config={"name": "sgd", "lr": 0.001,"weight_decay": 0.0}, 
                                        evaluator=evaluator, 
                                        estimator=estimator, 
-                                       margin = True)
+                                       margin = False)
                 
             train_loader = DataLoader(trainset, batch_size=128, shuffle=True)
             test_loader = DataLoader(testset, batch_size=128, shuffle=True)
@@ -87,4 +89,4 @@ if torch.cuda.is_available():
     print("GPU name:", torch.cuda.get_device_name(0))
     print("CUDA runtime version:", torch.version.cuda)
     print("Torch is using device:", torch.cuda.current_device())
-        #main()
+main()

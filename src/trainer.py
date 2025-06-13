@@ -86,8 +86,8 @@ class LightningClassifier(L.LightningModule):
         stage: str = "train"
         with torch.no_grad():
             accuracy, f1, precision, recall, crossentropy = self.evaluator.get_complete_evaluation(self.train_output, self.train_target)
-        
-        evcp_bound = self.evaluator.get_avg_evcp_bound(np.mean(self.train_margin), self.estimator.radius, 5005) if np.mean(self.train_margin) <= self.estimator.radius else 0
+        if self.margin:
+            evcp_bound = self.evaluator.get_avg_evcp_bound(np.mean(self.train_margin), self.estimator.radius, 5005) if np.mean(self.train_margin) <= self.estimator.radius else 0
    
     
         log_data = {
@@ -98,10 +98,14 @@ class LightningClassifier(L.LightningModule):
             f"{stage}/precision": precision,
             f"{stage}/recall": recall,
             f"{stage}/crossentropy": crossentropy,
-            f"{stage}/avgmargin" : np.mean(self.train_margin),
-            f"{stage}/avgevcpbound": evcp_bound,
             f"{stage}/time_elapsed" : self.train_t_end - self.train_t_start
         }
+
+        if self.margin:
+            log_data.update(
+                {f"{stage}/avgmargin" : np.mean(self.train_margin),
+                f"{stage}/avgevcpbound": evcp_bound}
+            )
 
         estimator_log_data = self.estimator.build_log(self.train_estimate, stage)
 
